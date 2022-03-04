@@ -38,5 +38,9 @@ Name the database for <b>test_db</b> for the go programs to work. If you don't w
 
 ## Task 2
 Execute server.go to initialize an endpoint at localhost:5000/ . Enter the command below in the directory.
-```go run server.go```
+```go run taskTwoEndPoint.go```
     
+
+There is a client program called which can be used to test the end point
+
+```go run client.go```
