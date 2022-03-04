@@ -29,17 +29,20 @@ func setupDB() *sql.DB {
     return db
 }
 //POINT(-1.922959 52.468337)
+
+//Function to make query to database when the type of zone is circle
 func makeQueryStringForCircle (long float64, lat float64, dist float64) string {
     distance := fmt.Sprintf("ST_Distance(coordinates, ST_GeomFromText('POINT(%f %f)', 4326))", long, lat)
     azimuth := fmt.Sprintf("ST_Azimuth(ST_GeomFromText('POINT(%f %f)',4326), coordinates)", long, lat)
     part1 := fmt.Sprintf("select *, %s , %s from ", distance, azimuth)
     part2 := `"MY_TABLE" `
     part3 := "where ST_DWithin(coordinates, "
-    part4 := fmt.Sprintf("ST_GeomFromText('Point(%f %f)', 4326), %f);", long, lat, dist)
+    part4 := fmt.Sprintf("ST_GeomFromText('Point(%f %f)', 4326), %f) and coordinates is not null;", long, lat, dist)
     query := part1 + part2 + part3 + part4
     return query
 }
 
+//Function to make query to database when the type of zone is square
 func makeQueryStringForSquare (long float64, lat float64, dist float64) string {
     distance := fmt.Sprintf("ST_Distance(coordinates, ST_GeomFromText('POINT(%f %f)', 4326))", long, lat)
     azimuth := fmt.Sprintf("ST_Azimuth(ST_GeomFromText('POINT(%f %f)',4326), coordinates)", long, lat)
@@ -49,6 +52,7 @@ func makeQueryStringForSquare (long float64, lat float64, dist float64) string {
     var square_corners []string
     bearings := []float64{45, 135, 225, 315, 45}
 
+    //Making a square by it's corners
     for _, bearing := range bearings {
         corner_detail := fmt.Sprintf("ST_Project(ST_GeomFromText('POINT(%f %f)',4326) , %f, radians(%f)) :: geometry", long, lat, math.Sqrt(2)*dist, bearing)
         square_corners = append(square_corners, corner_detail)
@@ -61,6 +65,7 @@ func makeQueryStringForSquare (long float64, lat float64, dist float64) string {
     return query
 }
 
+// structure to read query output
 type query_row struct {
     id string
     name string
@@ -72,6 +77,8 @@ type query_row struct {
     azimuth float64
     fifty_proximity []string
 }
+
+//Function to respond to get requests from client
 func HelloHandler(w http.ResponseWriter, r *http.Request) {
     var resp string
     var lat float64
@@ -116,7 +123,7 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
         //fmt.Println(shape)
         query = makeQueryStringForSquare(long, lat, distance)
     }
-    //fmt.Println(query)
+    //Making the query
     rows, err := db.Query(query)
     defer rows.Close()
     if err != nil {
@@ -126,12 +133,15 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
         var row_list_of_map []map[string]string
         for rows.Next() {
             var ro query_row
+            // get the values of query in a single row
             rows.Scan(&ro.id, &ro.name, &ro.website, &ro.coordinates, &ro.description, &ro.rating, &ro.distance, &ro.azimuth)
-            row_map := map[string]string{"id": ro.id, "name": ro.name, "website": ro.website, "coordinates": ro.coordinates, "rating": fmt.Sprintf("%f", ro.rating)}
-            row_list_of_map = append(row_list_of_map, row_map)
+            // Apending the list of rows
             row_list = append(row_list, ro)
             //fmt.Println(ro.name, ro.distance)
         }
+
+        //Each spot must know which other spots are within 50m of it. Therefore each spot will have 
+        //a list of other spots which are in 50m distance from it. This condition is required by requirement 3.5 of Task2
         for i, l_row := range row_list {
             for _, ll_row := range row_list {
                 if (is_proximity_fifty_meters(l_row.azimuth, l_row.distance, ll_row.azimuth, ll_row.distance)) {
@@ -143,17 +153,22 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
             var return_value bool
             //if math.Abs(row_list[i].distance - row_list[j].distance) < 50 {
             if contains(row_list[i].fifty_proximity, row_list[j].id) {
-                return_value = row_list[i].rating < row_list[j].rating
+                return_value = row_list[i].rating > row_list[j].rating
             } else {
                 return_value = row_list[i].distance < row_list[j].distance
             }
             return return_value
         })
+        for _, ro := range row_list {
+            row_map := map[string]string{"id": ro.id, "name": ro.name, "website": ro.website, "coordinates": ro.coordinates, "rating": fmt.Sprintf("%f", ro.rating), "distance": fmt.Sprintf("%f", ro.distance)}
+            row_list_of_map = append(row_list_of_map, row_map)
+        }
         respByte, _ := json.Marshal(row_list_of_map)
         resp = string(respByte)
     }
     w.Write([]byte(resp))
 }
+
 func contains (list []string, value string) bool {
   for _, x := range list {
       if value == x {
@@ -162,6 +177,8 @@ func contains (list []string, value string) bool {
   }
   return false
 }
+
+//To calculate the distance between two points by distances and angles
 func is_proximity_fifty_meters(azimuth2 float64, chain2 float64, azimuth1 float64, chain1 float64) bool {
     diff_az := azimuth2 - azimuth1
     distance_spots := math.Sqrt(math.Pow(chain1, 2) + math.Pow(chain2, 2) - 2 * math.Abs(chain1) * math.Abs(chain2) * math.Cos(diff_az))
