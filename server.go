@@ -2,10 +2,14 @@ package main
 
 import (
     "database/sql"
-    //"encoding/json"
+    "encoding/json"
     "fmt"
     "log"
     "net/http"
+    "strconv"
+    "sort"
+    "math"
+    "strings"
     //"net/url"
     //"github.com/gorilla/mux"
     _ "github.com/lib/pq"
@@ -25,13 +29,33 @@ func setupDB() *sql.DB {
     return db
 }
 //POINT(-1.922959 52.468337)
-func makeQueryString (long float64, lat float64) string {
-
-    part1 := "select * from "
+func makeQueryStringForCircle (long float64, lat float64, dist float64) string {
+    distance := fmt.Sprintf("ST_Distance(coordinates, ST_GeomFromText('POINT(%f %f)', 4326))", long, lat)
+    part1 := fmt.Sprintf("select *, %s from ", distance)
     part2 := `"MY_TABLE" `
     part3 := "where ST_DWithin(coordinates, "
-    part4 := fmt.Sprintf("ST_GeomFromText('Point(%f %f)', 4326), 1000.0);", long, lat)
+    part4 := fmt.Sprintf("ST_GeomFromText('Point(%f %f)', 4326), %f);", long, lat, dist)
     query := part1 + part2 + part3 + part4
+    return query
+}
+
+func makeQueryStringForSquare (long float64, lat float64, dist float64) string {
+    distance := fmt.Sprintf("ST_Distance(coordinates, ST_GeomFromText('POINT(%f %f)', 4326))", long, lat)
+    part1 := fmt.Sprintf("select *, %s from ", distance)
+    part2 := `"MY_TABLE" `
+    var polygon_details string
+    var square_corners []string
+    bearings := []float64{45, 135, 225, 315, 45}
+
+    for _, bearing := range bearings {
+        corner_detail := fmt.Sprintf("ST_Project(ST_GeomFromText('POINT(%f %f)',4326) , %f, radians(%f)) :: geometry", long, lat, math.Sqrt(2)*dist, bearing)
+        square_corners = append(square_corners, corner_detail)
+    }
+    polygon_details = strings.Join(square_corners, ",")
+    part3 := fmt.Sprintf("where ST_Within( coordinates :: geometry, ST_MakePolygon(ST_MakeLine(Array[%s", polygon_details)
+    part4 := "])));"
+    query := part1 + part2 + part3 + part4
+    fmt.Println(query)
     return query
 }
 
@@ -41,41 +65,83 @@ type query_row struct {
     website string
     coordinates string
     description string
-    rating float32
+    rating float64
+    distance float64
 }
 func HelloHandler(w http.ResponseWriter, r *http.Request) {
-    var resp string = ""
-    //names, ok := r.URL.Query()["name"]
-    //if !ok || len(names[0]) < 1 {
-    //    resp = "Get request not properly made"
-    //}else{
-    //    resp = names[0]
-    //}
-    //mapv := map[string]int{"apple": 2, "peer": 3}
-    //mapJ, _ := json.Marshal(mapv)
-    //resp = string(mapJ)
+    var resp string
+    var lat float64
+    var long float64
+    var distance float64
+    var shape string
+    lats, ok := r.URL.Query()["Latitude"]
+    if !ok || len(lats[0]) < 1 {
+        resp = "Get request not properly made"
+    }else{
+        lat, _ = strconv.ParseFloat(lats[0], 64)
+    }
+    longs, ok := r.URL.Query()["Longitude"]
+    if !ok || len(longs[0]) < 1 {
+        resp = "Get request not properly made"
+    }else{
+        long, _ = strconv.ParseFloat(longs[0], 64)
+    }
+
+    distances, ok := r.URL.Query()["Radius"]
+    if !ok || len(distances[0]) < 1 {
+        resp = "Get request not properly made"
+    }else{
+        distance, _ = strconv.ParseFloat(distances[0], 64)
+    }
+
+    shapes, ok := r.URL.Query()["Type"]
+    if !ok || len(shapes[0]) < 1 {
+        resp = "Get request not properly made"
+    }else{
+        shape = shapes[0]
+    }
+
 
     db := setupDB()
-    //query := `select upper(website) from "MY_TABLE" where name = 'Simpsons Restaurant';`
-    long := -1.922959
-    lat := 52.468337
-    query := makeQueryString(long, lat)
-    fmt.Println(query)
-    //var avRat string
-    //row := db.QueryRow(query)
+    //long := -1.922959
+    //lat := 52.468337
+    var query string
+    if shape == "circle" {
+        query = makeQueryStringForCircle(long, lat, distance)
+    } else if shape == "square" {
+        fmt.Println(shape)
+        query = makeQueryStringForSquare(long, lat, distance)
+    }
+    //fmt.Println(query)
     rows, err := db.Query(query)
     defer rows.Close()
     if err != nil {
-    //panic(err)
         resp = "Oops"
     }else {
+        var row_list []query_row
+        var row_list_of_map []map[string]string
         for rows.Next() {
             var ro query_row
-            rows.Scan(&ro.id, &ro.name, &ro.website, &ro.coordinates, &ro.description, &ro.rating)
-            fmt.Println(ro.name)
+            rows.Scan(&ro.id, &ro.name, &ro.website, &ro.coordinates, &ro.description, &ro.rating, &ro.distance)
+            row_map := map[string]string{"id": ro.id, "name": ro.name, "website": ro.website, "coordinates": ro.coordinates, "rating": fmt.Sprintf("%f", ro.rating), "distance": fmt.Sprintf("%f", ro.distance)}
+            row_list_of_map = append(row_list_of_map, row_map)
+            row_list = append(row_list, ro)
+            //fmt.Println(ro.name, ro.distance)
         }
-        resp = "Whatever"
-        //resp = query
+        sort.Slice(row_list, func(i, j int) bool {
+            var return_value bool
+            if math.Abs(row_list[i].distance - row_list[j].distance) < 50 {
+                return_value = row_list[i].rating < row_list[j].rating
+            } else {
+                return_value = row_list[i].distance < row_list[j].distance
+            }
+            return return_value
+        })
+        for _, l_row := range row_list {
+            fmt.Println(l_row.name, l_row.distance)
+        }
+        respByte, _ := json.Marshal(row_list_of_map)
+        resp = string(respByte)
     }
     w.Write([]byte(resp))
 }
