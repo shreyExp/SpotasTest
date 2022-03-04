@@ -1,9 +1,9 @@
 --Task 1
 
 
--- To update the table for modifying the website values, uncomment the below update query
---update "MY_TABLE"
---   set website = regexp_replace(website, '^(?:.*://)?(?:www\.)?([^:/]*).*$', '\1');
+--To update the table for modifying the website values, uncomment the below update query
+update "MY_TABLE"
+   set website = regexp_replace(website, '^(?:.*://)?(?:www\.)?([^:/]*).*$', '\1');
 --\echo Hello
 
 
