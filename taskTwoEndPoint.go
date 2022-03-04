@@ -57,7 +57,7 @@ func makeQueryStringForSquare (long float64, lat float64, dist float64) string {
     part3 := fmt.Sprintf("where ST_Within( coordinates :: geometry, ST_MakePolygon(ST_MakeLine(Array[%s", polygon_details)
     part4 := "])));"
     query := part1 + part2 + part3 + part4
-    fmt.Println(query)
+    //fmt.Println(query)
     return query
 }
 
@@ -80,27 +80,27 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
     var shape string
     lats, ok := r.URL.Query()["Latitude"]
     if !ok || len(lats[0]) < 1 {
-        resp = "Get request not properly made"
+        log.Printf("Latitude is not provided correctly")
     }else{
         lat, _ = strconv.ParseFloat(lats[0], 64)
     }
     longs, ok := r.URL.Query()["Longitude"]
     if !ok || len(longs[0]) < 1 {
-        resp = "Get request not properly made"
+        log.Printf("Longitude is not provided correctly")
     }else{
         long, _ = strconv.ParseFloat(longs[0], 64)
     }
 
     distances, ok := r.URL.Query()["Radius"]
     if !ok || len(distances[0]) < 1 {
-        resp = "Get request not properly made"
+        log.Printf("Radius is not provided correctly")
     }else{
         distance, _ = strconv.ParseFloat(distances[0], 64)
     }
 
     shapes, ok := r.URL.Query()["Type"]
     if !ok || len(shapes[0]) < 1 {
-        resp = "Get request not properly made"
+        log.Printf("Shape is not provided correctly")
     }else{
         shape = shapes[0]
     }
@@ -113,7 +113,7 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
     if shape == "circle" {
         query = makeQueryStringForCircle(long, lat, distance)
     } else if shape == "square" {
-        fmt.Println(shape)
+        //fmt.Println(shape)
         query = makeQueryStringForSquare(long, lat, distance)
     }
     //fmt.Println(query)
@@ -127,20 +127,11 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
         for rows.Next() {
             var ro query_row
             rows.Scan(&ro.id, &ro.name, &ro.website, &ro.coordinates, &ro.description, &ro.rating, &ro.distance, &ro.azimuth)
-            row_map := map[string]string{"id": ro.id, "name": ro.name, "website": ro.website, "coordinates": ro.coordinates, "rating": fmt.Sprintf("%f", ro.rating), "distance": fmt.Sprintf("%f", ro.distance)}
+            row_map := map[string]string{"id": ro.id, "name": ro.name, "website": ro.website, "coordinates": ro.coordinates, "rating": fmt.Sprintf("%f", ro.rating)}
             row_list_of_map = append(row_list_of_map, row_map)
             row_list = append(row_list, ro)
             //fmt.Println(ro.name, ro.distance)
         }
-        sort.Slice(row_list, func(i, j int) bool {
-            var return_value bool
-            if math.Abs(row_list[i].distance - row_list[j].distance) < 50 {
-                return_value = row_list[i].rating < row_list[j].rating
-            } else {
-                return_value = row_list[i].distance < row_list[j].distance
-            }
-            return return_value
-        })
         for i, l_row := range row_list {
             for _, ll_row := range row_list {
                 if (is_proximity_fifty_meters(l_row.azimuth, l_row.distance, ll_row.azimuth, ll_row.distance)) {
@@ -148,14 +139,32 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
                 }
             }
         }
+        sort.Slice(row_list, func(i, j int) bool {
+            var return_value bool
+            //if math.Abs(row_list[i].distance - row_list[j].distance) < 50 {
+            if contains(row_list[i].fifty_proximity, row_list[j].id) {
+                return_value = row_list[i].rating < row_list[j].rating
+            } else {
+                return_value = row_list[i].distance < row_list[j].distance
+            }
+            return return_value
+        })
         respByte, _ := json.Marshal(row_list_of_map)
         resp = string(respByte)
     }
     w.Write([]byte(resp))
 }
+func contains (list []string, value string) bool {
+  for _, x := range list {
+      if value == x {
+          return true
+      }
+  }
+  return false
+}
 func is_proximity_fifty_meters(azimuth2 float64, chain2 float64, azimuth1 float64, chain1 float64) bool {
     diff_az := azimuth2 - azimuth1
-    distance_spots := math.Sqrt(math.Pow(chain1, 2) + math.Pow(chain2, 2) - 2 * math.Cos(diff_az))
+    distance_spots := math.Sqrt(math.Pow(chain1, 2) + math.Pow(chain2, 2) - 2 * math.Abs(chain1) * math.Abs(chain2) * math.Cos(diff_az))
     return_value := false
     if distance_spots < 50 {
         return_value = true
