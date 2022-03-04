@@ -37,6 +37,20 @@ Name the database for <b>test_db</b> for the go programs to work. If you don't w
   
 
 ## Task 2
-Execute server.go to initialize an endpoint at localhost:5000/ . Enter the command below in the directory.
-```go run server.go```
+Execute ```taskTwoEndPoint.go``` to initialize an endpoint at ```localhost:5000/``` . Enter the command below in the directory.
+
+
+```go run taskTwoEndPoint.go```
+
+The database name is hard coded in the file ```taskTwoEndPoint.go``` as
+
+```DB_NAME := "test_db"```
+
+If you wan't to change the db name go to the ```taskTwoEndPoint.go``` file and change the value of ```DB_NAME```.
+
+Password is not used at all. You may wan't to disable the password for the postgresql.
     
+
+There is a client program called which can be used to test the end point
+
+```go run client.go```
