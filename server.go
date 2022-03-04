@@ -31,7 +31,8 @@ func setupDB() *sql.DB {
 //POINT(-1.922959 52.468337)
 func makeQueryStringForCircle (long float64, lat float64, dist float64) string {
     distance := fmt.Sprintf("ST_Distance(coordinates, ST_GeomFromText('POINT(%f %f)', 4326))", long, lat)
-    part1 := fmt.Sprintf("select *, %s from ", distance)
+    azimuth := fmt.Sprintf("ST_Azimuth(ST_GeomFromText('POINT(%f %f)',4326), coordinates)", long, lat)
+    part1 := fmt.Sprintf("select *, %s , %s from ", distance, azimuth)
     part2 := `"MY_TABLE" `
     part3 := "where ST_DWithin(coordinates, "
     part4 := fmt.Sprintf("ST_GeomFromText('Point(%f %f)', 4326), %f);", long, lat, dist)
@@ -41,7 +42,8 @@ func makeQueryStringForCircle (long float64, lat float64, dist float64) string {
 
 func makeQueryStringForSquare (long float64, lat float64, dist float64) string {
     distance := fmt.Sprintf("ST_Distance(coordinates, ST_GeomFromText('POINT(%f %f)', 4326))", long, lat)
-    part1 := fmt.Sprintf("select *, %s from ", distance)
+    azimuth := fmt.Sprintf("ST_Azimuth(ST_GeomFromText('POINT(%f %f)',4326), coordinates)", long, lat)
+    part1 := fmt.Sprintf("select *, %s , %s from ", distance, azimuth)
     part2 := `"MY_TABLE" `
     var polygon_details string
     var square_corners []string
@@ -67,6 +69,8 @@ type query_row struct {
     description string
     rating float64
     distance float64
+    azimuth float64
+    fifty_proximity []string
 }
 func HelloHandler(w http.ResponseWriter, r *http.Request) {
     var resp string
@@ -122,7 +126,7 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
         var row_list_of_map []map[string]string
         for rows.Next() {
             var ro query_row
-            rows.Scan(&ro.id, &ro.name, &ro.website, &ro.coordinates, &ro.description, &ro.rating, &ro.distance)
+            rows.Scan(&ro.id, &ro.name, &ro.website, &ro.coordinates, &ro.description, &ro.rating, &ro.distance, &ro.azimuth)
             row_map := map[string]string{"id": ro.id, "name": ro.name, "website": ro.website, "coordinates": ro.coordinates, "rating": fmt.Sprintf("%f", ro.rating), "distance": fmt.Sprintf("%f", ro.distance)}
             row_list_of_map = append(row_list_of_map, row_map)
             row_list = append(row_list, ro)
@@ -137,14 +141,28 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
             }
             return return_value
         })
-        for _, l_row := range row_list {
-            fmt.Println(l_row.name, l_row.distance)
+        for i, l_row := range row_list {
+            for _, ll_row := range row_list {
+                if (is_proximity_fifty_meters(l_row.azimuth, l_row.distance, ll_row.azimuth, ll_row.distance)) {
+                    row_list[i].fifty_proximity = append(row_list[i].fifty_proximity, ll_row.id)
+                }
+            }
         }
         respByte, _ := json.Marshal(row_list_of_map)
         resp = string(respByte)
     }
     w.Write([]byte(resp))
 }
+func is_proximity_fifty_meters(azimuth2 float64, chain2 float64, azimuth1 float64, chain1 float64) bool {
+    diff_az := azimuth2 - azimuth1
+    distance_spots := math.Sqrt(math.Pow(chain1, 2) + math.Pow(chain2, 2) - 2 * math.Cos(diff_az))
+    return_value := false
+    if distance_spots < 50 {
+        return_value = true
+    }
+    return return_value
+}
+
 func main () {
     mux := http.NewServeMux()
     mux.HandleFunc("/", HelloHandler)
