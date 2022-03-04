@@ -25,7 +25,7 @@ Name the database for <b>test_db</b> for the go programs to work. If you don't w
 
 *  Execute the script for populating the table ```"MY_TABLE"```. This file was given with the test material.
 
-    ```\i <path to spots.sql```
+    ```\i <path to spots.sql>```
 
 * Execute the script which is part of the candidate response
  
